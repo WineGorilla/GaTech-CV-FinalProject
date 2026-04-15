@@ -1,0 +1,303 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{array}
+\usepackage{hyperref}
+
+\title{Activity Classification using Motion History Images (MHI)}
+\author{Ricardo \; (replace with full name)}
+\date{April 2026}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{Course:} CS 6476 Computer Vision \\
+\textbf{Project Topic:} Activity Classification using MHI
+
+\begin{abstract}
+This report presents a complete activity classification pipeline based on Motion History Images (MHI) for six required classes: walking, jogging, running, boxing, waving, and clapping. The system follows assignment constraints by implementing motion history construction and moment-based descriptors directly (without using \texttt{cv2.HuMoments}), training only classical machine learning models, and avoiding pre-trained networks. The final pipeline includes robust motion extraction, motion-region canonicalization, MHI/MEI feature fusion, manual Hu invariant computation, and multi-model comparison (KNN, SVM, Random Forest, Logistic Regression). This document is written as a submission-ready technical report template: all methods are complete, while dataset-specific quantitative values and figures are marked for direct replacement with final experimental outputs.
+\end{abstract}
+
+\section{Introduction}
+Human activity recognition in videos is a core computer vision task with applications in surveillance, human-computer interaction, healthcare monitoring, and sports analytics. For this project, the objective is to classify six action categories from video using temporal template methods discussed in class.
+
+Compared with deep video architectures, MHI-based approaches are lightweight, interpretable, and suitable for small/medium datasets. The central idea is to summarize recent motion into a single image where brighter pixels represent more recent movement. Shape descriptors computed on this template can then be fed to a classifier.
+
+The contributions of this implementation are:
+\begin{itemize}
+    \item A fully constraint-compliant MHI pipeline (no banned Hu API, no deep learning framework).
+    \item A robust feature extractor that improves invariance to noise, location, and scale.
+    \item A unified multi-model evaluation framework with automatic best-model selection.
+\end{itemize}
+
+\section{Related Work}
+Bobick and Davis introduced temporal templates (MEI/MHI) for representing human movement and recognizing actions with compact motion summaries \cite{bobick2001}. Moment invariants from Hu provide translation/scale/rotation-sensitive shape descriptors widely used for classical recognition tasks \cite{hu1962}. Modern action recognition methods rely heavily on deep architectures (e.g., two-stream networks, 3D ConvNets, transformers), but these are outside this assignment's allowed model family \cite{simonyan2014, carreira2017}. Therefore, this work focuses on classical temporal-template methods with careful feature engineering and model selection.
+
+\section{Method}
+\subsection{Problem setup}
+Given an input video clip $V = \{I_t\}_{t=1}^{T}$, classify the observed human action into one of:
+\[
+\mathcal{Y}=\{\text{walking},\text{jogging},\text{running},\text{boxing},\text{waving},\text{clapping}\}.
+\]
+
+\subsection{Preprocessing and binary motion signal}
+Each frame is resized to a fixed resolution (default $160\times120$), converted to grayscale, and lightly smoothed with a Gaussian filter to reduce compression/sensor noise.
+
+For consecutive frames $I_t$ and $I_{t-1}$, the absolute difference is:
+\[
+D_t(x,y)=|I_t(x,y)-I_{t-1}(x,y)|.
+\]
+A binary motion image $B_t$ is then computed as:
+\[
+B_t(x,y)=
+\begin{cases}
+1,& D_t(x,y)\ge \theta_t,\\
+0,& \text{otherwise},
+\end{cases}
+\]
+where
+\[
+\theta_t = \max(\theta_{\min},\,\mu_D + 1.5\sigma_D),
+\]
+with $\mu_D,\sigma_D$ being the mean and standard deviation of $D_t$. This adaptive threshold floor is more robust than a fixed threshold under illumination and codec variation.
+
+A morphological open-then-close operation removes small isolated noise and fills small holes. Finally, only the largest connected motion component is retained to suppress distractors.
+
+\subsection{Motion History Image (MHI)}
+The MHI update rule follows:
+\[
+M_t(x,y)=
+\begin{cases}
+\tau, & B_t(x,y)=1,\\
+\max(M_{t-1}(x,y)-1,0), & B_t(x,y)=0.
+\end{cases}
+\]
+Here, $\tau$ controls temporal memory length: larger $\tau$ preserves longer motion trails. After processing all frames, $M_t$ is normalized to $[0,1]$.
+
+\subsection{MEI construction}
+A Motion Energy Image (MEI) is also formed from the final MHI:
+\[
+E(x,y)=\mathbb{1}[M(x,y)>\delta],
+\]
+with default $\delta=0.05$. This complements MHI by encoding motion occupancy (binary) while MHI encodes recency/intensity (continuous).
+
+\subsection{Motion-region canonicalization}
+To improve translation and scale robustness, the motion region bounding box is extracted from MEI, padded, and resized to a canonical size ($96\times96$). This canonicalization is applied to both MHI and MEI before moment computation.
+
+Two geometric summary features are also retained:
+\begin{itemize}
+    \item Bounding-box aspect ratio.
+    \item Bounding-box area ratio relative to full frame.
+\end{itemize}
+
+\subsection{Moment features and manual Hu invariants}
+Moments are computed directly (no banned helper API). Let raw moments be:
+\[
+m_{pq}=\sum_x\sum_y x^p y^q I(x,y),
+\]
+centroid
+\[
+\bar{x}=\frac{m_{10}}{m_{00}},\qquad \bar{y}=\frac{m_{01}}{m_{00}},
+\]
+central moments
+\[
+\mu_{pq}=\sum_x\sum_y(x-\bar{x})^p(y-\bar{y})^q I(x,y),
+\]
+and normalized central moments
+\[
+\eta_{pq}=\frac{\mu_{pq}}{\mu_{00}^{1+(p+q)/2}}.
+\]
+
+For orders $(p,q)\in\{(2,0),(1,1),(0,2),(3,0),(2,1),(1,2),(0,3),(2,2)\}$, both central and normalized moments are included. In addition, seven Hu invariants are manually derived from normalized moments. A signed-log transform
+\[
+f(v)=\operatorname{sign}(v)\log(1+|v|)
+\]
+is applied to stabilize magnitude ranges.
+
+\subsection{Final feature vector}
+The final descriptor concatenates:
+\begin{itemize}
+    \item Moment block from canonicalized MHI.
+    \item Moment block from canonicalized MEI.
+    \item Global motion statistics: motion ratio, mean MHI energy, standard deviation of energy, temporal density, aspect ratio, area ratio.
+\end{itemize}
+In the current implementation the feature dimension is 52.
+
+\subsection{Classifier training and model selection}
+Data split uses stratified 70/30 train/test partition. Four classifiers are trained and compared:
+\begin{itemize}
+    \item KNN ($k=3$) with standardization
+    \item RBF-SVM ($C=3.0$) with standardization
+    \item Random Forest (300 trees)
+    \item Logistic Regression (max iterations 2000) with standardization
+\end{itemize}
+The best model is selected by lexicographic ranking: higher accuracy first, then higher macro-F1. The selected model is exported for inference.
+
+\section{Assignment Compliance}
+This implementation satisfies the project constraints as follows:
+\begin{itemize}
+    \item Required classes supported: walking, jogging, running, boxing, waving, clapping.
+    \item No use of \texttt{cv2.HuMoments}; all moments/Hu invariants are manually implemented.
+    \item No PyTorch/TensorFlow usage in the classifier pipeline.
+    \item No pre-trained model usage; all models are trained from scratch.
+    \item Relative-path workflow for training, inference, and report artifacts.
+\end{itemize}
+
+\section{Experimental Protocol}
+\subsection{Dataset notes}
+\textbf{Replace this subsection with your real dataset details.} Include source, number of subjects, train/test split policy, and any pre-filtering.
+
+Suggested table template:
+\begin{table}[H]
+\centering
+\caption{Dataset composition (replace with final values).}
+\begin{tabular}{lccc}
+\toprule
+Class & \#Train clips & \#Test clips & Notes \\
+\midrule
+walking  & [ ] & [ ] & [ ] \\
+jogging  & [ ] & [ ] & [ ] \\
+running  & [ ] & [ ] & [ ] \\
+boxing   & [ ] & [ ] & [ ] \\
+waving   & [ ] & [ ] & [ ] \\
+clapping & [ ] & [ ] & [ ] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Runtime configuration}
+Default configuration used by scripts:
+\begin{itemize}
+    \item Resize: $160\times120$
+    \item $\tau=20$, $\theta_{\min}=25$, max frames = 120
+    \item Feature extraction from final MHI/MEI per clip
+    \item Multi-model training with automatic best-model export
+\end{itemize}
+
+\subsection{Evaluation metrics}
+Primary metrics are accuracy and macro-F1. Secondary analysis includes weighted-F1, per-class precision/recall, confusion matrix, and qualitative failure case review.
+
+\section{Results}
+\subsection{Model comparison}
+\textbf{Replace all bracketed values with your final run outputs.}
+
+\begin{table}[H]
+\centering
+\caption{Model comparison on the test set.}
+\begin{tabular}{lcccc}
+\toprule
+Model & Accuracy & Macro-F1 & Weighted-F1 & Notes \\
+\midrule
+KNN & [ ] & [ ] & [ ] & [ ] \\
+SVM & [ ] & [ ] & [ ] & [ ] \\
+Random Forest & [ ] & [ ] & [ ] & [ ] \\
+Logistic Regression & [ ] & [ ] & [ ] & [ ] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Best selected model: \textbf{[model\_name]}.\\
+Final test accuracy: \textbf{[ ]}. Macro-F1: \textbf{[ ]}.
+
+\subsection{Confusion matrix and class-level behavior}
+\begin{table}[H]
+\centering
+\caption{Confusion matrix template (rows = true, cols = predicted).}
+\begin{tabular}{lcccccc}
+\toprule
+True$\backslash$Pred & walk & jog & run & box & wave & clap \\
+\midrule
+walking  & [ ] & [ ] & [ ] & [ ] & [ ] & [ ] \\
+jogging  & [ ] & [ ] & [ ] & [ ] & [ ] & [ ] \\
+running  & [ ] & [ ] & [ ] & [ ] & [ ] & [ ] \\
+boxing   & [ ] & [ ] & [ ] & [ ] & [ ] & [ ] \\
+waving   & [ ] & [ ] & [ ] & [ ] & [ ] & [ ] \\
+clapping & [ ] & [ ] & [ ] & [ ] & [ ] & [ ] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Insert short analysis here} (2-4 sentences): identify the most confused class pairs and hypothesize why.
+
+\subsection{Qualitative results}
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.9\linewidth}{\centering Replace with 2x3 qualitative grid: one representative frame per class with predicted label overlay.}}
+\caption{Qualitative examples on test clips.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.9\linewidth}{\centering Replace with 2x2 panel: input frame, binary motion map, MHI, MEI for a sample clip.}}
+\caption{Intermediate visualizations from the motion pipeline.}
+\end{figure}
+
+\section{Error Analysis}
+\subsection{Positive cases}
+Typical successful cases include videos with stable backgrounds, clear single-subject motion, and moderate viewpoint changes. Under these conditions, temporal motion templates are highly discriminative.
+
+\subsection{Negative cases}
+Common failure modes on real data:
+\begin{itemize}
+    \item Camera motion introduces widespread false motion and corrupts $B_t$.
+    \item Similar upper-body patterns (e.g., boxing vs. waving) overlap in moment space.
+    \item Very short clips or low frame rates under-represent temporal trajectories.
+    \item Extreme scale/viewpoint shifts reduce template consistency.
+\end{itemize}
+
+\subsection{Why robustness features help}
+Compared with a basic MHI+moments baseline, the current pipeline improves stability through adaptive thresholding, largest-component filtering, canonicalized motion crops, and MHI/MEI feature fusion. These additions reduce background-noise sensitivity and improve cross-subject consistency.
+
+\section{Ablation and Discussion}
+\textbf{Recommended final insertions once data is ready:}
+\begin{itemize}
+    \item Baseline features vs. robust features (accuracy and macro-F1 deltas).
+    \item Single-model vs. multi-model selection impact.
+    \item Sensitivity to $\tau$ and threshold settings.
+\end{itemize}
+
+Suggested ablation table:
+\begin{table}[H]
+\centering
+\caption{Ablation template (fill with final numbers).}
+\begin{tabular}{lcc}
+\toprule
+Configuration & Accuracy & Macro-F1 \\
+\midrule
+Basic MHI moments only & [ ] & [ ] \\
++ Robust binary motion preprocessing & [ ] & [ ] \\
++ MHI/MEI dual feature blocks & [ ] & [ ] \\
++ Multi-model selection & [ ] & [ ] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Conclusion}
+This project delivers a complete, constraint-compliant activity classification pipeline based on MHI. The method combines robust motion extraction, handcrafted temporal-template descriptors, and classical ML model comparison to classify the six required action classes. The implementation is reproducible, lightweight, and suitable for detailed error analysis. Final quantitative claims should be reported after replacing placeholders with real-dataset experiments.
+
+\begin{thebibliography}{9}
+\bibitem{bobick2001}
+A. F. Bobick and J. W. Davis,
+``The Recognition of Human Movement Using Temporal Templates,''
+\emph{IEEE Transactions on Pattern Analysis and Machine Intelligence}, 23(3), 257--267, 2001.
+
+\bibitem{hu1962}
+M.-K. Hu,
+``Visual Pattern Recognition by Moment Invariants,''
+\emph{IRE Transactions on Information Theory}, 8(2), 179--187, 1962.
+
+\bibitem{simonyan2014}
+K. Simonyan and A. Zisserman,
+``Two-Stream Convolutional Networks for Action Recognition in Videos,''
+\emph{Advances in Neural Information Processing Systems (NeurIPS)}, 2014.
+
+\bibitem{carreira2017}
+J. Carreira and A. Zisserman,
+``Quo Vadis, Action Recognition? A New Model and the Kinetics Dataset,''
+\emph{IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}, 2017.
+\end{thebibliography}
+
+\end{document}
