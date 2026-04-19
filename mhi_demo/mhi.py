@@ -7,7 +7,6 @@ EPS = 1e-8
 
 
 def _preprocess_gray(gray: np.ndarray) -> np.ndarray:
-    # Light smoothing makes frame differencing less sensitive to sensor/compression noise.
     return cv2.GaussianBlur(gray, (5, 5), 0)
 
 
@@ -29,8 +28,6 @@ def _keep_largest_component(binary: np.ndarray, min_area: int = 80) -> np.ndarra
 def frame_diff_binary(prev_gray: np.ndarray, gray: np.ndarray, theta: int = 25) -> np.ndarray:
     """Compute robust binary motion image Bt from frame differencing."""
     diff = cv2.absdiff(gray, prev_gray)
-
-    # Adaptive threshold floor improves robustness to illumination/compression changes.
     adaptive_theta = int(np.mean(diff) + 1.5 * np.std(diff))
     thr = max(theta, adaptive_theta)
     bt = (diff >= thr).astype(np.uint8) * 255
@@ -42,55 +39,6 @@ def frame_diff_binary(prev_gray: np.ndarray, gray: np.ndarray, theta: int = 25) 
     return bt
 
 
-def build_mhi_from_video(
-    video_path: str,
-    tau: int = 20,
-    theta: int = 25,
-    resize_to: tuple[int, int] | None = (160, 120),
-    max_frames: int | None = None,
-) -> np.ndarray:
-    """Build Motion History Image from a video file."""
-    cap = cv2.VideoCapture(video_path)
-    ok, frame = cap.read()
-    if not ok:
-        cap.release()
-        raise ValueError(f"Unable to read video: {video_path}")
-
-    if resize_to is not None:
-        frame = cv2.resize(frame, resize_to)
-
-    prev_gray = _preprocess_gray(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
-    mhi = np.zeros_like(prev_gray, dtype=np.float32)
-
-    t = 0
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-
-        if resize_to is not None:
-            frame = cv2.resize(frame, resize_to)
-
-        gray = _preprocess_gray(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
-        bt = frame_diff_binary(prev_gray, gray, theta=theta)
-
-        moving = bt > 0
-        mhi[moving] = tau
-        mhi[~moving] = np.maximum(mhi[~moving] - 1, 0)
-
-        prev_gray = gray
-        t += 1
-        if max_frames is not None and t >= max_frames:
-            break
-
-    cap.release()
-
-    if mhi.max() > 0:
-        mhi = mhi / mhi.max()
-
-    return mhi
-
-
 def _raw_moment(img: np.ndarray, p: int, q: int) -> float:
     ys, xs = np.indices(img.shape)
     return float(np.sum((xs**p) * (ys**q) * img))
@@ -100,7 +48,6 @@ def _central_moment(img: np.ndarray, p: int, q: int) -> float:
     m00 = _raw_moment(img, 0, 0) + EPS
     x_bar = _raw_moment(img, 1, 0) / m00
     y_bar = _raw_moment(img, 0, 1) / m00
-
     ys, xs = np.indices(img.shape)
     return float(np.sum(((xs - x_bar) ** p) * ((ys - y_bar) ** q) * img))
 
@@ -178,14 +125,27 @@ def _moment_block(img: np.ndarray) -> list[float]:
     return feats
 
 
+def _body_part_hu_features(mhi_c: np.ndarray, mei_c: np.ndarray) -> list[float]:
+    # Body-part aware signal: upper/lower half for both MHI and MEI.
+    h = mhi_c.shape[0]
+    half = h // 2
+    parts = [mhi_c[:half, :], mhi_c[half:, :], mei_c[:half, :], mei_c[half:, :]]
+    feats: list[float] = []
+    for p in parts:
+        p_resized = cv2.resize(p, CANONICAL_SIZE, interpolation=cv2.INTER_LINEAR)
+        feats.extend(_hu_invariants(p_resized))
+    return feats
+
+
 def extract_features_from_mhi(mhi: np.ndarray) -> np.ndarray:
     """
-    Robust feature extraction from MHI.
+    Robust feature extraction from one MHI.
 
     Components:
     - Motion-region canonicalization (translation/scale robustness)
     - MHI moments + MEI moments (intensity + occupancy)
     - Manual Hu invariants (not using cv2.HuMoments)
+    - Upper/lower body part Hu features (MHI + MEI)
     - Global motion statistics
     """
     mhi = np.asarray(mhi, dtype=np.float32)
@@ -199,6 +159,7 @@ def extract_features_from_mhi(mhi: np.ndarray) -> np.ndarray:
     feats: list[float] = []
     feats.extend(_moment_block(mhi_c))
     feats.extend(_moment_block(mei_c))
+    feats.extend(_body_part_hu_features(mhi_c, mei_c))
 
     motion_ratio = float(np.mean(mei))
     mean_energy = float(np.mean(mhi))
@@ -207,3 +168,126 @@ def extract_features_from_mhi(mhi: np.ndarray) -> np.ndarray:
 
     feats.extend([motion_ratio, mean_energy, std_energy, temporal_density, aspect, bbox_area_ratio])
     return np.asarray(feats, dtype=np.float32)
+
+
+def _load_preprocessed_grays(
+    video_path: str,
+    resize_to: tuple[int, int] | None = (160, 120),
+    max_frames: int | None = None,
+) -> list[np.ndarray]:
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Unable to open video: {video_path}")
+
+    grays: list[np.ndarray] = []
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if resize_to is not None:
+            frame = cv2.resize(frame, resize_to)
+        gray = _preprocess_gray(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+        grays.append(gray)
+        if max_frames is not None and len(grays) >= max_frames:
+            break
+
+    cap.release()
+    if not grays:
+        raise ValueError(f"No frames read from: {video_path}")
+    return grays
+
+
+def _build_mhi_from_grays(grays: list[np.ndarray], tau: int, theta: int, start: int, end: int) -> np.ndarray:
+    shape = grays[0].shape
+    mhi = np.zeros(shape, dtype=np.float32)
+    if end - start < 2:
+        return mhi
+
+    prev = grays[start]
+    for i in range(start + 1, end):
+        cur = grays[i]
+        bt = frame_diff_binary(prev, cur, theta=theta)
+        moving = bt > 0
+        mhi[moving] = tau
+        mhi[~moving] = np.maximum(mhi[~moving] - 1, 0)
+        prev = cur
+
+    if mhi.max() > 0:
+        mhi = mhi / mhi.max()
+    return mhi
+
+
+def _temporal_motion_stats(grays: list[np.ndarray], theta: int) -> list[float]:
+    if len(grays) < 2:
+        return [0.0, 0.0, 0.0, 0.0]
+
+    seq = []
+    prev = grays[0]
+    for i in range(1, len(grays)):
+        bt = frame_diff_binary(prev, grays[i], theta=theta)
+        seq.append(float(np.mean(bt > 0)))
+        prev = grays[i]
+
+    arr = np.asarray(seq, dtype=np.float32)
+    if len(arr) >= 2:
+        a = arr[:-1]
+        b = arr[1:]
+        a = a - float(np.mean(a))
+        b = b - float(np.mean(b))
+        den = float(np.linalg.norm(a) * np.linalg.norm(b))
+        corr = float(np.dot(a, b) / den) if den > 1e-12 else 0.0
+    else:
+        corr = 0.0
+    return [float(arr.mean()), float(arr.std()), float(arr.max()), corr]
+
+
+def _tau_set(base_tau: int) -> list[int]:
+    # Multi-timescale temporal memory.
+    candidates = [max(6, base_tau // 2), base_tau, max(base_tau + 8, base_tau * 2)]
+    return sorted(set(int(x) for x in candidates))
+
+
+def extract_features_from_video(
+    video_path: str,
+    base_tau: int = 20,
+    theta: int = 25,
+    resize_to: tuple[int, int] | None = (160, 120),
+    max_frames: int | None = 120,
+) -> np.ndarray:
+    """
+    Enhanced video descriptor with three innovations:
+    1) Multi-τ MHI
+    2) Temporal pyramid MHI (full + 3 segments)
+    3) Body-part-aware moment features inside extract_features_from_mhi
+    """
+    grays = _load_preprocessed_grays(video_path, resize_to=resize_to, max_frames=max_frames)
+    n = len(grays)
+
+    # Full clip + temporal thirds.
+    ranges = [
+        (0, n),
+        (0, max(2, n // 3)),
+        (max(0, n // 3), max(2, 2 * n // 3)),
+        (max(0, 2 * n // 3), n),
+    ]
+
+    feats: list[float] = []
+    for tau in _tau_set(base_tau):
+        for start, end in ranges:
+            mhi = _build_mhi_from_grays(grays, tau=tau, theta=theta, start=start, end=end)
+            feats.extend(extract_features_from_mhi(mhi).tolist())
+
+    feats.extend(_temporal_motion_stats(grays, theta=theta))
+    return np.asarray(feats, dtype=np.float32)
+
+
+def build_mhi_from_video(
+    video_path: str,
+    tau: int = 20,
+    theta: int = 25,
+    resize_to: tuple[int, int] | None = (160, 120),
+    max_frames: int | None = None,
+) -> np.ndarray:
+    """Backward-compatible helper to build one MHI from a full video."""
+    grays = _load_preprocessed_grays(video_path, resize_to=resize_to, max_frames=max_frames)
+    return _build_mhi_from_grays(grays, tau=tau, theta=theta, start=0, end=len(grays))

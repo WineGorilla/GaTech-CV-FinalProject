@@ -1,0 +1,11 @@
+# Motion-aware frame selection log
+
+Qualitative grid:
+- walking  video=person01_walking_d1_uncomp.avi frame=25 motion_score=5.170
+- jogging  video=person01_jogging_d1_uncomp.avi frame=27 motion_score=7.293
+- running  video=person01_running_d1_uncomp.avi frame=116 motion_score=9.976
+- boxing   video=person01_boxing_d1_uncomp.avi frame=5 motion_score=3.354
+- waving   video=person01_handwaving_d1_uncomp.avi frame=30 motion_score=3.567
+- clapping video=person01_handclapping_d1_uncomp.avi frame=80 motion_score=2.987
+
+Pipeline visualization: video=person01_running_d1_uncomp.avi frame=116 motion_score=9.945
