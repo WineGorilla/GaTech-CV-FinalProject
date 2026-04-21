@@ -20,8 +20,10 @@ def run_training(
     max_frames: int,
     k_neighbors: int,
     models_arg: str,
+    method_variant: str = "enhanced",
+    seed: int = 42,
 ):
-    x, y, sample_paths = collect_samples(data_dir, tau, theta, max_frames)
+    x, y, sample_paths = collect_samples(data_dir, tau, theta, max_frames, method_variant=method_variant)
     print(f"Loaded {len(y)} samples, feature_dim={x.shape[1]}")
 
     unique_labels = np.unique(y)
@@ -29,7 +31,7 @@ def run_training(
         raise ValueError("Need at least 2 classes in data_dir to train a classifier.")
 
     x_train, x_test, y_train, y_test = train_test_split(
-        x, y, test_size=0.3, random_state=42, stratify=y
+        x, y, test_size=0.3, random_state=seed, stratify=y
     )
 
     model_specs = build_model_specs(k_neighbors)
@@ -75,6 +77,8 @@ def run_training(
         "n_samples": int(len(y)),
         "sample_paths": sample_paths,
         "models_compared": requested_models,
+        "method_variant": method_variant,
+        "seed": seed,
         "model_results": results,
         "best_model": best["model"],
         "best_accuracy": best["accuracy"],
@@ -90,6 +94,7 @@ def run_training(
             "actions": ACTIONS,
             "tau": tau,
             "theta": theta,
+            "method_variant": method_variant,
         },
         model_out,
     )

@@ -137,7 +137,7 @@ def _body_part_hu_features(mhi_c: np.ndarray, mei_c: np.ndarray) -> list[float]:
     return feats
 
 
-def extract_features_from_mhi(mhi: np.ndarray) -> np.ndarray:
+def _extract_features_from_mhi_impl(mhi: np.ndarray, include_body_part: bool) -> np.ndarray:
     """
     Robust feature extraction from one MHI.
 
@@ -159,7 +159,8 @@ def extract_features_from_mhi(mhi: np.ndarray) -> np.ndarray:
     feats: list[float] = []
     feats.extend(_moment_block(mhi_c))
     feats.extend(_moment_block(mei_c))
-    feats.extend(_body_part_hu_features(mhi_c, mei_c))
+    if include_body_part:
+        feats.extend(_body_part_hu_features(mhi_c, mei_c))
 
     motion_ratio = float(np.mean(mei))
     mean_energy = float(np.mean(mhi))
@@ -168,6 +169,11 @@ def extract_features_from_mhi(mhi: np.ndarray) -> np.ndarray:
 
     feats.extend([motion_ratio, mean_energy, std_energy, temporal_density, aspect, bbox_area_ratio])
     return np.asarray(feats, dtype=np.float32)
+
+
+def extract_features_from_mhi(mhi: np.ndarray) -> np.ndarray:
+    """Enhanced single-MHI feature block (includes body-part-aware features)."""
+    return _extract_features_from_mhi_impl(mhi, include_body_part=True)
 
 
 def _load_preprocessed_grays(
@@ -253,6 +259,7 @@ def extract_features_from_video(
     theta: int = 25,
     resize_to: tuple[int, int] | None = (160, 120),
     max_frames: int | None = 120,
+    method_variant: str = "enhanced",
 ) -> np.ndarray:
     """
     Enhanced video descriptor with three innovations:
@@ -263,7 +270,16 @@ def extract_features_from_video(
     grays = _load_preprocessed_grays(video_path, resize_to=resize_to, max_frames=max_frames)
     n = len(grays)
 
-    # Full clip + temporal thirds.
+    method_variant = method_variant.lower().strip()
+    if method_variant not in {"baseline", "enhanced"}:
+        raise ValueError(f"Unsupported method_variant: {method_variant}")
+
+    # Baseline: single-scale robust MHI without temporal pyramid or multi-tau.
+    if method_variant == "baseline":
+        mhi = _build_mhi_from_grays(grays, tau=base_tau, theta=theta, start=0, end=n)
+        return _extract_features_from_mhi_impl(mhi, include_body_part=False)
+
+    # Enhanced: full clip + temporal thirds with multi-tau.
     ranges = [
         (0, n),
         (0, max(2, n // 3)),
@@ -275,7 +291,7 @@ def extract_features_from_video(
     for tau in _tau_set(base_tau):
         for start, end in ranges:
             mhi = _build_mhi_from_grays(grays, tau=tau, theta=theta, start=start, end=end)
-            feats.extend(extract_features_from_mhi(mhi).tolist())
+            feats.extend(_extract_features_from_mhi_impl(mhi, include_body_part=True).tolist())
 
     feats.extend(_temporal_motion_stats(grays, theta=theta))
     return np.asarray(feats, dtype=np.float32)

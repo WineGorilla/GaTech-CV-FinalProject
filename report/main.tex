@@ -19,7 +19,7 @@
 \textbf{Project Topic:} Activity Classification using MHI
 
 \begin{abstract}
-This report presents a complete human activity classification pipeline based on Motion History Images (MHI) for six required classes: walking, jogging, running, boxing, waving, and clapping. The implementation strictly follows assignment constraints: no pre-trained model, no deep learning framework, and no direct use of \texttt{cv2.HuMoments}. The final system combines robust motion extraction, MHI/MEI moment descriptors, and multi-model training. To improve recognition on real data, three innovations are introduced on top of a baseline MHI pipeline: multi-timescale MHI (multi-$\tau$), temporal pyramid MHI, and body-part-aware features. On 599 real clips, the best model (Random Forest) achieves 73.33\% accuracy and 0.7378 macro-F1, substantially improving over the earlier single-scale baseline.
+This report presents a complete human activity classification pipeline based on Motion History Images (MHI) for six required classes: walking, jogging, running, boxing, waving, and clapping. The implementation strictly follows assignment constraints: no pre-trained model, no deep learning framework, and no direct use of \texttt{cv2.HuMoments}. The final system combines robust motion extraction, MHI/MEI moment descriptors, and multi-model training. To improve recognition on real data, three innovations are introduced on top of a baseline MHI pipeline: multi-timescale MHI (multi-$\tau$), temporal pyramid MHI, and body-part-aware features. Over 3-seed experiments on 599 clips, the enhanced method achieves $0.6741\pm0.0500$ accuracy and $0.6727\pm0.0549$ macro-F1 (best-per-run), outperforming the baseline method ($0.6185\pm0.0146$ accuracy, $0.6178\pm0.0140$ macro-F1).
 \end{abstract}
 
 \section{Introduction}
@@ -132,23 +132,23 @@ Total & 599 \\
 \end{table}
 
 \subsection{Protocol}
-Frames are resized to $160\times120$. Stratified train/test split is 70/30. Base parameters: $\tau=20$, $\theta_{\min}=25$, max\_frames=40 (for the reported enhanced run).
+Frames are resized to $160\times120$. Stratified train/test split is 70/30. Base parameters: $\tau=20$, $\theta_{\min}=25$. For statistical reporting, experiments are repeated with seeds $\{42,52,62\}$ and mean$\pm$std are reported.
 
 \section{Results}
 \subsection{Model comparison}
 \begin{table}[htbp]
 \centering
-\caption{Performance comparison on real dataset}
+\caption{Enhanced-method model comparison over 3 runs (mean$\pm$std)}
 \begin{tabular}{lccc}
 \toprule
 Model & Accuracy & Macro-F1 & Weighted-F1 \\
 \midrule
-Random Forest & \textbf{0.7333} & \textbf{0.7378} & \textbf{0.7378} \\
-SVM & 0.6667 & 0.6660 & 0.6660 \\
-Logistic Regression & 0.5889 & 0.5904 & 0.5904 \\
-Decision Tree & 0.5556 & 0.5377 & 0.5377 \\
-KNN & 0.5167 & 0.5185 & 0.5185 \\
-Gaussian Naive Bayes & 0.3722 & 0.2961 & 0.2961 \\
+Random Forest & \textbf{0.6741$\pm$0.0500} & \textbf{0.6727$\pm$0.0549} & \textbf{0.6727$\pm$0.0549} \\
+SVM & 0.6389$\pm$0.0253 & 0.6384$\pm$0.0266 & 0.6384$\pm$0.0266 \\
+Logistic Regression & 0.5944$\pm$0.0342 & 0.5971$\pm$0.0320 & 0.5971$\pm$0.0320 \\
+Decision Tree & 0.5611$\pm$0.0164 & 0.5563$\pm$0.0201 & 0.5563$\pm$0.0201 \\
+KNN & 0.5278$\pm$0.0240 & 0.5281$\pm$0.0264 & 0.5281$\pm$0.0264 \\
+Gaussian Naive Bayes & 0.3778$\pm$0.0164 & 0.3398$\pm$0.0322 & 0.3398$\pm$0.0322 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -156,10 +156,10 @@ Gaussian Naive Bayes & 0.3722 & 0.2961 & 0.2961 \\
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.92\linewidth]{figures/model_comparison.png}
-\caption{Accuracy and Macro-F1 for all compared models.}
+\caption{Single-run visualization of model comparison (aggregated values are reported in the table).}
 \end{figure}
 
-Among six baselines, Random Forest is best with 73.33\% accuracy and 0.7378 macro-F1.
+Across 3 runs, Random Forest is the strongest model under the enhanced method.
 
 \subsection{Confusion matrix analysis}
 \begin{figure}[htbp]
@@ -189,7 +189,7 @@ The model separates waving well (26/30 correct), indicating upper-body motion de
 \end{figure}
 
 \section{Ablation: Impact of MHI Innovations}
-Table~\ref{tab:method_comparison} reports the method-level comparison (not just classifier comparison). Before adding multi-$\tau$, temporal pyramid, and body-part-aware descriptors, the earlier single-scale robust pipeline produced Accuracy $=0.4611$ and Macro-F1 $=0.4560$. After innovations, Accuracy increased to $0.7333$ and Macro-F1 to $0.7378$.
+Table~\ref{tab:method_comparison} reports method-level comparison from 3-run statistics. The enhanced method consistently outperforms the baseline method.
 
 \begin{table}[htbp]
 \centering
@@ -199,13 +199,13 @@ Table~\ref{tab:method_comparison} reports the method-level comparison (not just 
 \toprule
 Method Variant & Accuracy & Macro-F1 \\
 \midrule
-Single-scale robust MHI + RF (baseline) & 0.4611 & 0.4560 \\
-Enhanced MHI (multi-$\tau$ + temporal pyramid + body-part) + RF & \textbf{0.7333} & \textbf{0.7378} \\
+Baseline (single-scale robust pipeline, best-per-run) & 0.6185$\pm$0.0146 & 0.6178$\pm$0.0140 \\
+Enhanced (multi-$\tau$ + temporal pyramid + body-part, best-per-run) & \textbf{0.6741$\pm$0.0500} & \textbf{0.6727$\pm$0.0549} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Absolute gains are +27.22 points (accuracy) and +28.18 points (macro-F1), indicating that temporal-scale diversity and part-aware modeling are the main performance drivers.
+Mean improvements are +5.56 points in accuracy and +5.49 points in macro-F1, indicating that temporal-scale diversity and part-aware modeling improve robustness on real data.
 
 \section{Assignment Compliance}
 This submission satisfies all key constraints:
@@ -213,12 +213,12 @@ This submission satisfies all key constraints:
     \item 6 required actions are used (walking, jogging, running, boxing, waving, clapping).
     \item No \texttt{cv2.HuMoments}; all moments/Hu invariants are manually implemented.
     \item No PyTorch/TensorFlow or pre-trained model.
-    \item Classical ML only (KNN, SVM, RF, Logistic Regression).
+    \item Classical ML only (KNN, SVM, RF, Logistic Regression, Decision Tree, Gaussian Naive Bayes).
     \item Relative paths used in code and experiments.
 \end{itemize}
 
 \section{Conclusion}
-A complete MHI-based activity classifier was implemented and evaluated on real data under assignment constraints. The enhanced feature design (multi-$\tau$, temporal pyramid, and body-part-aware descriptors) significantly improves robustness and class separability. Random Forest provides the best tradeoff and achieves 73.33\% accuracy / 0.7378 macro-F1 on 599 clips. Remaining errors are concentrated in actions with overlapping arm/torso motion patterns, suggesting future gains may come from stronger person localization and sequence-level decision smoothing.
+A complete MHI-based activity classifier was implemented and evaluated on real data under assignment constraints. The enhanced feature design (multi-$\tau$, temporal pyramid, and body-part-aware descriptors) improves robustness and class separability in 3-run evaluation. Random Forest remains the best classifier under the enhanced setup, and method-level statistics show clear gains over baseline. Remaining errors are concentrated in actions with overlapping arm/torso motion patterns, suggesting future gains may come from stronger person localization and sequence-level decision smoothing.
 
 \begin{thebibliography}{9}
 \bibitem{bobick2001}

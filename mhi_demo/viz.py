@@ -12,6 +12,7 @@ def predict_label(model_bundle, video_path: str):
         theta=model_bundle["theta"],
         resize_to=(160, 120),
         max_frames=120,
+        method_variant=model_bundle.get("method_variant", "enhanced"),
     )[None, :]
     pred_idx = int(model_bundle["model"].predict(feat)[0])
     return model_bundle["actions"][pred_idx]

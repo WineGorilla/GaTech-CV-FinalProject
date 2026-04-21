@@ -13,6 +13,8 @@ def main():
     parser.add_argument("--theta", type=int, default=25)
     parser.add_argument("--max_frames", type=int, default=120)
     parser.add_argument("--k", type=int, default=3)
+    parser.add_argument("--method_variant", type=str, default="enhanced", choices=["baseline", "enhanced"])
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--models",
         type=str,
@@ -30,6 +32,8 @@ def main():
         max_frames=args.max_frames,
         k_neighbors=args.k,
         models_arg=args.models,
+        method_variant=args.method_variant,
+        seed=args.seed,
     )
 
 

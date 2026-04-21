@@ -6,7 +6,7 @@ from .config import ACTION_DIR_ALIASES, ACTIONS, VIDEO_SUFFIXES
 from .mhi import extract_features_from_video
 
 
-def collect_samples(data_dir: Path, tau: int, theta: int, max_frames: int | None):
+def collect_samples(data_dir: Path, tau: int, theta: int, max_frames: int | None, method_variant: str = "enhanced"):
     x_list = []
     y_list = []
     paths = []
@@ -31,6 +31,7 @@ def collect_samples(data_dir: Path, tau: int, theta: int, max_frames: int | None
                     theta=theta,
                     resize_to=(160, 120),
                     max_frames=max_frames,
+                    method_variant=method_variant,
                 )
                 x_list.append(feat)
                 y_list.append(label)
