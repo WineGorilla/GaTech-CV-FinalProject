@@ -8,6 +8,7 @@ from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
 
+# 构建不同机器学习模型
 def build_model_specs(k_neighbors: int):
     return {
         "knn": make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=k_neighbors)),

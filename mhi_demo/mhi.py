@@ -1,16 +1,17 @@
 import cv2
 import numpy as np
 
+# 全量矩阶组合
 FEATURE_ORDERS = [(2, 0), (1, 1), (0, 2), (3, 0), (2, 1), (1, 2), (0, 3), (2, 2)]
-CANONICAL_SIZE = (96, 96)
+CANONICAL_SIZE = (96, 96) #裁剪缩放
 EPS = 1e-8
 
-
-def _preprocess_gray(gray: np.ndarray) -> np.ndarray:
+# 高斯模糊
+def _preprocess_gray(gray: np.ndarray):
     return cv2.GaussianBlur(gray, (5, 5), 0)
 
 
-def _keep_largest_component(binary: np.ndarray, min_area: int = 80) -> np.ndarray:
+def _keep_largest_component(binary: np.ndarray, min_area: int = 80):
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
     if num_labels <= 1:
         return binary
@@ -24,10 +25,10 @@ def _keep_largest_component(binary: np.ndarray, min_area: int = 80) -> np.ndarra
     out[labels == best_idx] = 255
     return out
 
-
-def frame_diff_binary(prev_gray: np.ndarray, gray: np.ndarray, theta: int = 25) -> np.ndarray:
-    """Compute robust binary motion image Bt from frame differencing."""
+# 帧差二值化处理
+def frame_diff_binary(prev_gray: np.ndarray, gray: np.ndarray, theta: int = 25):
     diff = cv2.absdiff(gray, prev_gray)
+    # 动态阈值
     adaptive_theta = int(np.mean(diff) + 1.5 * np.std(diff))
     thr = max(theta, adaptive_theta)
     bt = (diff >= thr).astype(np.uint8) * 255
@@ -39,12 +40,13 @@ def frame_diff_binary(prev_gray: np.ndarray, gray: np.ndarray, theta: int = 25) 
     return bt
 
 
-def _raw_moment(img: np.ndarray, p: int, q: int) -> float:
+# 矩相关函数
+def _raw_moment(img: np.ndarray, p: int, q: int):
     ys, xs = np.indices(img.shape)
     return float(np.sum((xs**p) * (ys**q) * img))
 
-
-def _central_moment(img: np.ndarray, p: int, q: int) -> float:
+# 中心矩
+def _central_moment(img: np.ndarray, p: int, q: int):
     m00 = _raw_moment(img, 0, 0) + EPS
     x_bar = _raw_moment(img, 1, 0) / m00
     y_bar = _raw_moment(img, 0, 1) / m00
@@ -52,18 +54,18 @@ def _central_moment(img: np.ndarray, p: int, q: int) -> float:
     return float(np.sum(((xs - x_bar) ** p) * ((ys - y_bar) ** q) * img))
 
 
-def _scale_invariant_moment(img: np.ndarray, p: int, q: int) -> float:
+def _scale_invariant_moment(img: np.ndarray, p: int, q: int):
     mu00 = _central_moment(img, 0, 0) + EPS
     mupq = _central_moment(img, p, q)
     gamma = 1.0 + (p + q) / 2.0
     return float(mupq / (mu00**gamma))
 
 
-def _signed_log(v: float) -> float:
+def _signed_log(v: float):
     return float(np.sign(v) * np.log1p(abs(v)))
 
-
-def _hu_invariants(img: np.ndarray) -> list[float]:
+# 手动实现7个不变矩
+def _hu_invariants(img: np.ndarray):
     n20 = _scale_invariant_moment(img, 2, 0)
     n02 = _scale_invariant_moment(img, 0, 2)
     n11 = _scale_invariant_moment(img, 1, 1)
@@ -88,8 +90,8 @@ def _hu_invariants(img: np.ndarray) -> list[float]:
 
     return [_signed_log(h) for h in [h1, h2, h3, h4, h5, h6, h7]]
 
-
-def _canonicalize_motion_region(img: np.ndarray, mei: np.ndarray) -> tuple[np.ndarray, float, float]:
+# 运动区域标准化
+def _canonicalize_motion_region(img: np.ndarray, mei: np.ndarray):
     ys, xs = np.where(mei > 0)
     if xs.size == 0:
         return np.zeros(CANONICAL_SIZE, dtype=np.float32), 0.0, 0.0
@@ -137,17 +139,9 @@ def _body_part_hu_features(mhi_c: np.ndarray, mei_c: np.ndarray) -> list[float]:
     return feats
 
 
+# 提取总函数
 def _extract_features_from_mhi_impl(mhi: np.ndarray, include_body_part: bool) -> np.ndarray:
-    """
-    Robust feature extraction from one MHI.
 
-    Components:
-    - Motion-region canonicalization (translation/scale robustness)
-    - MHI moments + MEI moments (intensity + occupancy)
-    - Manual Hu invariants (not using cv2.HuMoments)
-    - Upper/lower body part Hu features (MHI + MEI)
-    - Global motion statistics
-    """
     mhi = np.asarray(mhi, dtype=np.float32)
     if mhi.max() > 0:
         mhi = mhi / (mhi.max() + EPS)
@@ -172,10 +166,9 @@ def _extract_features_from_mhi_impl(mhi: np.ndarray, include_body_part: bool) ->
 
 
 def extract_features_from_mhi(mhi: np.ndarray) -> np.ndarray:
-    """Enhanced single-MHI feature block (includes body-part-aware features)."""
     return _extract_features_from_mhi_impl(mhi, include_body_part=True)
 
-
+# 视频变为灰度帧序列
 def _load_preprocessed_grays(
     video_path: str,
     resize_to: tuple[int, int] | None = (160, 120),
@@ -202,7 +195,7 @@ def _load_preprocessed_grays(
         raise ValueError(f"No frames read from: {video_path}")
     return grays
 
-
+# 构建MHI
 def _build_mhi_from_grays(grays: list[np.ndarray], tau: int, theta: int, start: int, end: int) -> np.ndarray:
     shape = grays[0].shape
     mhi = np.zeros(shape, dtype=np.float32)
@@ -248,7 +241,7 @@ def _temporal_motion_stats(grays: list[np.ndarray], theta: int) -> list[float]:
 
 
 def _tau_set(base_tau: int) -> list[int]:
-    # Multi-timescale temporal memory.
+    # Multi-timescale temporal memory
     candidates = [max(6, base_tau // 2), base_tau, max(base_tau + 8, base_tau * 2)]
     return sorted(set(int(x) for x in candidates))
 
@@ -261,12 +254,6 @@ def extract_features_from_video(
     max_frames: int | None = 120,
     method_variant: str = "enhanced",
 ) -> np.ndarray:
-    """
-    Enhanced video descriptor with three innovations:
-    1) Multi-τ MHI
-    2) Temporal pyramid MHI (full + 3 segments)
-    3) Body-part-aware moment features inside extract_features_from_mhi
-    """
     grays = _load_preprocessed_grays(video_path, resize_to=resize_to, max_frames=max_frames)
     n = len(grays)
 
@@ -274,12 +261,12 @@ def extract_features_from_video(
     if method_variant not in {"baseline", "enhanced"}:
         raise ValueError(f"Unsupported method_variant: {method_variant}")
 
-    # Baseline: single-scale robust MHI without temporal pyramid or multi-tau.
+    # Baseline
     if method_variant == "baseline":
         mhi = _build_mhi_from_grays(grays, tau=base_tau, theta=theta, start=0, end=n)
         return _extract_features_from_mhi_impl(mhi, include_body_part=False)
 
-    # Enhanced: full clip + temporal thirds with multi-tau.
+    # Enhanced
     ranges = [
         (0, n),
         (0, max(2, n // 3)),
@@ -304,6 +291,5 @@ def build_mhi_from_video(
     resize_to: tuple[int, int] | None = (160, 120),
     max_frames: int | None = None,
 ) -> np.ndarray:
-    """Backward-compatible helper to build one MHI from a full video."""
     grays = _load_preprocessed_grays(video_path, resize_to=resize_to, max_frames=max_frames)
     return _build_mhi_from_grays(grays, tau=tau, theta=theta, start=0, end=len(grays))
