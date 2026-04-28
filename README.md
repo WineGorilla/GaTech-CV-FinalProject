@@ -1,10 +1,10 @@
 # CS6476 MHI Activity Classification Demo
 
-This is a runnable baseline demo for activity classification using Motion History Images (MHI), without PyTorch/TensorFlow and without `cv2.HuMoments`.
+This is a runnable baseline demo for activity classification using Motion History Images (MHI)
 
 ## What this demo includes
-- Manual MHI construction from frame differences (`Bt` + temporal decay).
-- Manual moment-based feature extraction (central moments + scale-invariant moments).
+- Manual MHI construction from frame differences.
+- Manual moment-based feature extraction.
 - Multi-model comparison using `scikit-learn` (KNN, SVM, RandomForest, LogisticRegression, DecisionTree, GaussianNB).
 - Simple prediction video export with per-frame label overlay.
 
@@ -15,7 +15,7 @@ python3 -m pip install -r requirements.txt
 
 ## 2) Train model
 ```bash
-python3 train.py --data_dir archive --model_out models/mhi_best.joblib --metrics_out outputs/metrics.json
+python3 train.py --data_dir archive
 ```
 
 Optional: choose model set
@@ -37,7 +37,7 @@ python3 infer_video.py --model models/mhi_best.joblib --video archive/walking/pe
 ## Notes for your real project
 - Keep relative paths only.
 - This baseline uses one label per video clip and overlays that label on each frame.
-- Next optimization stage can add sliding-window MHI for true frame-level changing labels.
+
 
 ## 4) Run 3-run experiments with mean/std
 Run both methods (`baseline` and `enhanced`) across all models and 3 seeds:
