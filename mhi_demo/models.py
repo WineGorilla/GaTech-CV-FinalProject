@@ -22,13 +22,11 @@ def build_model_specs(k_neighbors: int):
     }
 
 
-def parse_requested_models(models_arg: str, model_specs: dict):
+def parse_requested_models(models_arg, model_specs):
     requested_models = [name.strip().lower() for name in models_arg.split(",") if name.strip()]
     unknown_models = [name for name in requested_models if name not in model_specs]
     if unknown_models:
         raise ValueError(
             f"Unknown models in --models: {unknown_models}. Allowed: {list(model_specs.keys())}"
         )
-    if not requested_models:
-        raise ValueError("No models selected. Pass at least one model in --models.")
     return requested_models
