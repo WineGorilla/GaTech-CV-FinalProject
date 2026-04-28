@@ -9,7 +9,6 @@ import sys
 
 import numpy as np
 
-# Allow running script directly via `python scripts/run_experiments.py`.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -77,7 +76,6 @@ def main():
             payload["run_id"] = run_id
             runs.append(payload)
 
-    # Per-(method, model) aggregation
     grouped = defaultdict(lambda: {"accuracy": [], "macro_f1": [], "weighted_f1": []})
     for run in runs:
         method = run["method_variant"]
@@ -108,7 +106,6 @@ def main():
             }
         )
 
-    # Method-level summary using best-per-run metrics
     method_group = defaultdict(lambda: {"best_accuracy": [], "best_macro_f1": []})
     for run in runs:
         method = run["method_variant"]
@@ -141,13 +138,11 @@ def main():
         "method_summary": method_summary,
     }
 
-    # Save JSON artifacts
     runs_json = args.out_dir / "runs.json"
     summary_json = args.out_dir / "summary.json"
     runs_json.write_text(json.dumps({"runs": runs}, indent=2), encoding="utf-8")
     summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
-    # Save report-friendly CSVs
     method_csv = args.out_dir / "method_comparison.csv"
     with method_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(

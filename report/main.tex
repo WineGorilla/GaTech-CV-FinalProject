@@ -6,11 +6,12 @@
 \usepackage{float}
 \usepackage{enumitem}
 \usepackage{hyperref}
+\usepackage{subcaption}
 \setlist[itemize]{noitemsep,topsep=2pt}
 
 \title{Activity Classification using Motion History Images (MHI)}
-\author{Ricardo \; (replace with full name)}
-\date{April 2026}
+\author{Ruiyu Yan \; ryan84@gatech.edu}
+\date{Spring 2026}
 
 \begin{document}
 \maketitle
@@ -22,38 +23,53 @@
 This report presents a complete human activity classification pipeline based on Motion History Images (MHI) for six required classes: walking, jogging, running, boxing, waving, and clapping. The implementation strictly follows assignment constraints: no pre-trained model, no deep learning framework, and no direct use of \texttt{cv2.HuMoments}. The final system combines robust motion extraction, MHI/MEI moment descriptors, and multi-model training. To improve recognition on real data, three innovations are introduced on top of a baseline MHI pipeline: multi-timescale MHI (multi-$\tau$), temporal pyramid MHI, and body-part-aware features. Over 3-seed experiments on 599 clips, the enhanced method achieves $0.6741\pm0.0500$ accuracy and $0.6727\pm0.0549$ macro-F1 (best-per-run), outperforming the baseline method ($0.6185\pm0.0146$ accuracy, $0.6178\pm0.0140$ macro-F1).
 \end{abstract}
 
-\section{Introduction}
-Human action recognition from video is an important computer vision task for surveillance, behavior analytics, and human-computer interaction. In this project, the target is to classify six actions (walking, jogging, running, boxing, waving, clapping) using temporal templates rather than deep networks.
 
-MHI methods are attractive because they are lightweight, interpretable, and effective when data scale is moderate. An MHI summarizes motion recency into one image: recent movements are brighter, older movements fade over time. This representation is then transformed into handcrafted descriptors and classified by classical machine learning.
+
+
+\section{Introduction}
+Human action recognition from video is an important topic in computer vision, and it has been widely used in surveillance, behavior analysis, and human--computer interaction. In this project, the main task is to classify six human actions---walking, jogging, running, boxing, waving, and clapping---by using temporal templates instead of deep learning models.
+
+Motion History Images (MHI) are a good choice for this task because they are simple, efficient, and easy to understand. An MHI combines motion information from a video sequence into a single image, where recent motion appears brighter and earlier motion gradually fades. This allows the image to keep both the general shape of the movement and some temporal information, which makes it useful for handcrafted feature extraction and traditional machine learning classification.
+
+However, the standard single-scale MHI method also has some weaknesses. Since the whole sequence is summarized into one image, a lot of detailed temporal order is lost, so actions with similar motion patterns can be difficult to distinguish. Also, one single temporal scale may not work equally well for both short, fast actions and longer, smoother movements. In addition, global features may miss some important local motion details, especially for actions where arm movement is the key difference.
+
+To improve this baseline approach, this project adds three extensions: multi-timescale MHI, temporal pyramid representation, and body-part-aware features. These methods help capture motion at different speeds, keep more coarse temporal information, and focus more on local motion patterns. As a result, they make the action classification more robust and improve the ability to distinguish between similar actions, while still following the assignment requirement of not using deep learning.
 
 \section{Related Work}
-Temporal templates (MEI/MHI) were introduced by Bobick and Davis as compact representations for human motion recognition \cite{bobick2001}. Hu moments provide invariant shape descriptors widely used in classical recognition systems \cite{hu1962}. While modern methods rely on deep architectures (two-stream, 3D CNN, transformer), the assignment explicitly restricts this project to non-deep approaches \cite{simonyan2014, carreira2017}.
+
+Temporal template methods, such as Motion Energy Images (MEI) and Motion History Images (MHI), were first introduced by Bobick and Davis as a simple and effective way to represent human motion \cite{bobick2001}. Instead of analyzing every frame separately, these methods summarize motion from a video sequence into a compact template. This reduces the complexity of temporal analysis while still keeping important motion information, which makes them suitable for lightweight human action recognition tasks.
+
+For feature extraction, invariant moments are widely used in traditional pattern recognition. Among them, Hu moments are especially useful because they can describe shape information while being relatively robust to translation, scaling, and rotation \cite{hu1962}. Since MEI and MHI mainly capture motion shape, Hu moments are a reasonable choice for representing these motion templates. They are also simple to compute and easy to interpret, which fits well with a non-deep learning framework.
+
+Although recent work in action recognition mostly relies on deep learning models, such as two-stream networks and 3D CNNs, these methods usually need large amounts of training data and higher computational cost \cite{simonyan2014, carreira2017}. In this project, the focus is different. Under the assignment requirements, the goal is to build a classical pipeline without deep learning, using interpretable motion templates and handcrafted features for action classification.
+
 
 \section{Method}
+
 \subsection{Binary motion signal}
-For grayscale frames $I_t$ and $I_{t-1}$:
+
+Given grayscale frames $I_t$ and $I_{t-1}$, the frame difference is computed as:
 \[
 D_t(x,y)=|I_t(x,y)-I_{t-1}(x,y)|.
 \]
-A binary motion map is computed as:
+
+A binary motion map is then obtained by adaptive thresholding:
 \[
 B_t(x,y)=
 \begin{cases}
 1,& D_t(x,y)\ge \theta_t,\\
 0,& \text{otherwise},
 \end{cases}
+\quad
+\theta_t=\max(\theta_{\min},\mu_D+1.5\sigma_D),
 \]
-where
-\[
-\theta_t=\max(\theta_{\min},\mu_D+1.5\sigma_D).
-\]
-Here $\mu_D,\sigma_D$ are the mean/std of $D_t$. This adaptive threshold is more robust than a fixed threshold under varying illumination and compression noise.
+where $\mu_D,\sigma_D$ are the mean and standard deviation of $D_t$. This adaptive threshold improves robustness to illumination variation and noise compared to a fixed threshold.
 
-Then morphological open+close is applied, and only the largest connected component is kept.
+To further suppress noise and isolate the main motion region, morphological open--close operations are applied, followed by retaining only the largest connected component.
 
 \subsection{Motion history image}
-MHI is updated by:
+
+The Motion History Image (MHI) encodes motion recency by accumulating binary motion over time:
 \[
 M_t(x,y)=
 \begin{cases}
@@ -61,83 +77,101 @@ M_t(x,y)=
 \max(M_{t-1}(x,y)-1,0),& B_t(x,y)=0.
 \end{cases}
 \]
-$\tau$ controls temporal memory. Final MHI is normalized to $[0,1]$. MEI is derived as:
-\[
-E(x,y)=\mathbb{1}[M(x,y)>\delta],\ \delta=0.05.
-\]
 
-\subsection{Moment descriptors (manual implementation)}
-Raw moment:
+Here $\tau$ controls the temporal window, determining how long motion persists in the representation. The final MHI is normalized to $[0,1]$. A Motion Energy Image (MEI) is derived as:
+\[
+E(x,y)=\mathbb{1}[M(x,y)>\delta],\quad \delta=0.05,
+\]
+providing a complementary binary motion structure.
+
+\subsection{Moment descriptors}
+
+To obtain invariant shape descriptors from MHI and MEI, moment-based features are computed. The raw moment is defined as:
 \[
 m_{pq}=\sum_x\sum_y x^p y^q I(x,y),
 \]
-centroid:
+with centroid:
 \[
-\bar{x}=m_{10}/m_{00},\quad \bar{y}=m_{01}/m_{00},
+\bar{x}=m_{10}/m_{00},\quad \bar{y}=m_{01}/m_{00}.
 \]
-central moment:
+
+Central and normalized central moments are computed as:
 \[
-\mu_{pq}=\sum_x\sum_y(x-\bar{x})^p(y-\bar{y})^qI(x,y),
-\]
-normalized central moment:
-\[
+\mu_{pq}=\sum_x\sum_y(x-\bar{x})^p(y-\bar{y})^qI(x,y), \quad
 \eta_{pq}=\mu_{pq}/\mu_{00}^{1+(p+q)/2}.
 \]
 
-Orders $(p,q)\in\{(2,0),(1,1),(0,2),(3,0),(2,1),(1,2),(0,3),(2,2)\}$ are used. Seven Hu invariants are computed manually from $\eta_{pq}$ (without banned API). Signed-log transform $\text{sign}(v)\log(1+|v|)$ is applied for numerical stability.
+Moments up to order three are used, and seven Hu invariants are derived from $\eta_{pq}$ (implemented manually to satisfy assignment constraints). A signed-log transform $\text{sign}(v)\log(1+|v|)$ is applied for numerical stability and scale compression.
 
-\subsection{Innovations on top of baseline}
-\textbf{1) Multi-$\tau$ MHI}: features are extracted at multiple temporal scales ($\tau/2$, $\tau$, $2\tau$) to capture both short and long motion patterns.
+\subsection{Enhancements over baseline}
+The standard single-scale MHI is limited in capturing motion diversity and temporal structure. To address these issues, three extensions are introduced:
 
-\textbf{2) Temporal pyramid MHI}: for each $\tau$, features are extracted from full clip and three temporal segments (early/middle/late), preserving motion progression.
+\textbf{Multi-$\tau$ MHI.} Features are extracted at multiple temporal scales ($\tau/2$, $\tau$, $2\tau$), enabling the model to capture both short-duration and long-duration motion patterns.
 
-\textbf{3) Body-part-aware features}: after canonicalization, upper/lower halves of MHI and MEI are separately described with Hu invariants, improving discrimination for arm-dominant actions.
+\textbf{Temporal pyramid MHI.} For each $\tau$, the video is divided into early, middle, and late segments, and features are extracted separately. This partially restores temporal ordering lost in standard MHI.
+
+\textbf{Body-part-aware features.} After spatial normalization, MHI and MEI are split into upper and lower regions, and features are computed independently. This improves discrimination for actions dominated by localized motion (e.g., hand gestures).
+
 
 \subsection{Final feature and classifiers}
-The final video feature concatenates multi-$\tau$ and temporal-pyramid blocks plus temporal motion statistics. Final dimension is 964.
 
-Classifiers compared:
+The final feature vector concatenates multi-scale, temporal pyramid, and body-part-aware descriptors, along with basic motion statistics, resulting in a 964-dimensional representation.
+
+Several classical classifiers are evaluated:
 \begin{itemize}
     \item KNN ($k=3$)
     \item RBF-SVM ($C=3.0$)
     \item Random Forest (300 trees)
-    \item Logistic Regression (max\_iter=2000)
-    \item Decision Tree (max\_depth=12)
+    \item Logistic Regression ($\text{max\_iter}=2000$)
+    \item Decision Tree ($\text{max\_depth}=12$)
     \item Gaussian Naive Bayes
 \end{itemize}
-Best model is selected by accuracy, then macro-F1.
+
+The best model is selected based on accuracy, with macro-F1 used as a secondary metric to account for class balance.
+
 
 \section{Dataset and Experimental Setup}
+
 \subsection{Dataset}
-Real dataset directory: \texttt{archive/}. Class folders used:
-\texttt{walking}, \texttt{jogging}, \texttt{running}, \texttt{boxing}, \texttt{handwaving}, \texttt{handclapping}.
+
+To evaluate the proposed method, I conduct experiments on the widely-used KTH Action Dataset \cite{schuldt2004}. The dataset comprises six distinct categories of human activities: \emph{walking}, \emph{jogging}, \emph{running}, \emph{boxing}, \emph{waving}, and \emph{clapping} (originally designated as \emph{handwaving} and \emph{handclapping}). The processed dataset is nearly balanced, consisting of a total of 599 video sequences. These sequences capture various actors performing actions under different scenarios, providing a robust benchmark for evaluating motion-based feature extraction.
 
 \begin{table}[htbp]
 \centering
-\caption{Dataset composition used in this report}
-\begin{tabular}{lcc}
+\small
+\setlength{\tabcolsep}{3pt}
+\caption{Dataset composition}
+\begin{tabular}{lcccccc}
 \toprule
-Class & Clips \\
+Class & Walk & Jog & Run & Box & Wave & Clap \\
 \midrule
-walking & 100 \\
-jogging & 100 \\
-running & 100 \\
-boxing & 100 \\
-waving (handwaving) & 100 \\
-clapping (handclapping) & 99 \\
-\midrule
-Total & 599 \\
+Clips & 100 & 100 & 100 & 100 & 100 & 99 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsection{Protocol}
-Frames are resized to $160\times120$. Stratified train/test split is 70/30. Base parameters: $\tau=20$, $\theta_{\min}=25$. For statistical reporting, experiments are repeated with seeds $\{42,52,62\}$ and mean$\pm$std are reported.
+
+All frames are resized to $160\times120$. A stratified 70/30 train--test split is used to preserve class balance. To reduce sensitivity to a single random split, all experiments are repeated over three different train--test partitions with different random seeds. Reported results are presented as mean $\pm$ standard deviation across these three runs.
+
+Unless otherwise stated, the reported setting uses $\tau=20$, $\theta_{\min}=25$, and a maximum of 40 frames per clip. These parameters balance motion coverage, computational efficiency, and robustness on the real dataset.
+
+
+
+
+
+
+
+
 
 \section{Results}
+
 \subsection{Model comparison}
+
 \begin{table}[htbp]
 \centering
+\small
+\setlength{\tabcolsep}{4pt}
 \caption{Enhanced-method model comparison over 3 runs (mean$\pm$std)}
 \begin{tabular}{lccc}
 \toprule
@@ -153,72 +187,80 @@ Gaussian Naive Bayes & 0.3778$\pm$0.0164 & 0.3398$\pm$0.0322 & 0.3398$\pm$0.0322
 \end{tabular}
 \end{table}
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.92\linewidth]{figures/model_comparison.png}
-\caption{Single-run visualization of model comparison (aggregated values are reported in the table).}
-\end{figure}
-
-Across 3 runs, Random Forest is the strongest model under the enhanced method.
+Across three runs, Random Forest consistently achieves the best performance. The relatively small gap between accuracy and macro-F1 reflects the balanced class distribution, while the reported standard deviations indicate moderate sensitivity to data splits.
 
 \subsection{Confusion matrix analysis}
+
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.70\linewidth]{figures/confusion_matrix.png}
-\caption{Confusion matrix of the best model (Random Forest).}
+\begin{subfigure}[t]{0.32\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/confusion_by_seed/cm_rf_enhanced_seed42_raw.png}
+    \caption{Seed 42}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.32\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/confusion_by_seed/cm_rf_enhanced_seed52_raw.png}
+    \caption{Seed 52}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.32\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]{figures/confusion_by_seed/cm_rf_enhanced_seed62_raw.png}
+    \caption{Seed 62}
+\end{subfigure}
+\caption{Confusion matrices of Random Forest across different random seeds.}
+\label{fig:three_figs}
 \end{figure}
 
-Most confusion appears between:
-\begin{itemize}
-    \item walking and clapping (22 walking correct, 6 misclassified as clapping; 24 clapping correct, 14 misclassified as walking),
-    \item boxing and clapping (17 boxing correct, 11 as clapping).
-\end{itemize}
-The model separates waving well (26/30 correct), indicating upper-body motion descriptors are effective when gesture amplitude is clear.
+Across different seeds, the confusion patterns are generally consistent. The clearest ambiguity is between jogging and running, since differences in motion speed are not easy to capture with MHI alone. Walking and clapping are also confused across all seeds, suggesting that repeated full-body motion and repetitive arm movement can sometimes produce similar overall motion patterns.
+
+There is also some confusion between boxing and clapping, and between waving and clapping. This shows that actions dominated by upper-body movement are still harder to separate when detailed temporal order is compressed into a single template.
+
+Even with these ambiguities, actions with more distinctive motion patterns, such as running and waving, are recognized more reliably. Although performance changes across seeds (about 0.61 to 0.73 accuracy), the overall behavior remains fairly stable.
 
 \subsection{Qualitative results}
+
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.98\linewidth]{figures/qualitative_grid.png}
-\caption{Qualitative predictions on representative clips. Each class frame is selected by peak motion score (green = correct, red = incorrect).}
+\includegraphics[width=0.8\linewidth]{figures/qualitative_grid.png}
+\caption{Qualitative predictions on representative clips (green = correct, red = incorrect).}
 \end{figure}
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.98\linewidth]{figures/pipeline_visualization.png}
-\caption{Pipeline visualization at a motion-peak frame pair: input frame, binary motion map $B_t$, MHI, and MEI.}
+\includegraphics[width=0.8\linewidth]{figures/pipeline_visualization.png}
+\caption{Pipeline visualization at a motion-peak frame: input frame, binary motion map $B_t$, MHI, and MEI.}
 \end{figure}
 
-\section{Ablation: Impact of MHI Innovations}
-Table~\ref{tab:method_comparison} reports method-level comparison from 3-run statistics. The enhanced method consistently outperforms the baseline method.
+Qualitative results show that the model performs well on actions with clear motion patterns, while errors mainly occur in cases with subtle differences or overlapping movement regions.
+
+\section{Ablation: Impact of MHI Enhancements}
 
 \begin{table}[htbp]
 \centering
-\caption{Method-level effect comparison}
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Method-level comparison (3-run statistics)}
 \label{tab:method_comparison}
 \begin{tabular}{lcc}
 \toprule
 Method Variant & Accuracy & Macro-F1 \\
 \midrule
-Baseline (single-scale robust pipeline, best-per-run) & 0.6185$\pm$0.0146 & 0.6178$\pm$0.0140 \\
-Enhanced (multi-$\tau$ + temporal pyramid + body-part, best-per-run) & \textbf{0.6741$\pm$0.0500} & \textbf{0.6727$\pm$0.0549} \\
+Baseline (single-scale MHI) & 0.6185$\pm$0.0146 & 0.6178$\pm$0.0140 \\
+Enhanced (multi-$\tau$ + temporal pyramid + body-part) & \textbf{0.6741$\pm$0.0500} & \textbf{0.6727$\pm$0.0549} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Mean improvements are +5.56 points in accuracy and +5.49 points in macro-F1, indicating that temporal-scale diversity and part-aware modeling improve robustness on real data.
+The enhanced method improves performance by +5.56 points in accuracy and +5.49 points in macro-F1. This demonstrates that incorporating multi-scale temporal information and localized body-part features effectively mitigates the limitations of standard MHI and improves robustness on real-world data.
 
-\section{Assignment Compliance}
-This submission satisfies all key constraints:
-\begin{itemize}
-    \item 6 required actions are used (walking, jogging, running, boxing, waving, clapping).
-    \item No \texttt{cv2.HuMoments}; all moments/Hu invariants are manually implemented.
-    \item No PyTorch/TensorFlow or pre-trained model.
-    \item Classical ML only (KNN, SVM, RF, Logistic Regression, Decision Tree, Gaussian Naive Bayes).
-    \item Relative paths used in code and experiments.
-\end{itemize}
 
 \section{Conclusion}
-A complete MHI-based activity classifier was implemented and evaluated on real data under assignment constraints. The enhanced feature design (multi-$\tau$, temporal pyramid, and body-part-aware descriptors) improves robustness and class separability in 3-run evaluation. Random Forest remains the best classifier under the enhanced setup, and method-level statistics show clear gains over baseline. Remaining errors are concentrated in actions with overlapping arm/torso motion patterns, suggesting future gains may come from stronger person localization and sequence-level decision smoothing.
+In this project, a complete MHI-based activity classification system was implemented and tested under the assignment requirements. The results show that the enhanced feature design, including multi-$\tau$ MHI, temporal pyramid representation, and body-part-aware descriptors, improves the robustness of the method and helps separate action classes more clearly across the 3-run evaluation.
+
+Among the classifiers tested, Random Forest achieved the best performance with the enhanced feature setting. The statistical comparison at the method level also shows that the improved design performs better than the baseline approach. Some classification errors still remain, mainly for actions with similar arm and upper-body motion patterns. This suggests that further improvement may be possible by using better person localization and smoother sequence-level prediction in future work.
 
 \begin{thebibliography}{9}
 \bibitem{bobick2001}
@@ -230,6 +272,13 @@ A. F. Bobick and J. W. Davis,
 M.-K. Hu,
 ``Visual Pattern Recognition by Moment Invariants,''
 \emph{IRE Transactions on Information Theory}, 8(2), 179--187, 1962.
+
+
+\bibitem{schuldt2004}
+C. Sch\"uldt, I. Laptev and B. Caputo,
+``Recognizing Human Actions: A Local SVM Approach,''
+\emph{Proceedings of the 16th International Conference on Pattern Recognition (ICPR)}, 2004.
+% Note: 这是 KTH Action Dataset 的官方引用来源
 
 \bibitem{simonyan2014}
 K. Simonyan and A. Zisserman,

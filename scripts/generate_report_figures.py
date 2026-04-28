@@ -8,7 +8,6 @@ import cv2
 import joblib
 import numpy as np
 
-# Allow running script directly via `python scripts/generate_report_figures.py`.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -72,7 +71,7 @@ def build_qualitative_grid(
     out_file: Path,
     model_bundle: dict,
     scan_frames: int,
-) -> list[tuple[str, str, int, float]]:
+):
     actions = model_bundle["actions"]
     model = model_bundle["model"]
     tau = model_bundle["tau"]
@@ -116,7 +115,7 @@ def build_pipeline_visualization(
     data_dir: Path,
     out_file: Path,
     scan_frames: int,
-) -> tuple[str, int, float]:
+):
     video = _pick_class_video(data_dir, "running")
     frames = _load_frames(video, (320, 240), max(scan_frames, 120))
     idx, score = _motion_peak_index(frames[:scan_frames])
